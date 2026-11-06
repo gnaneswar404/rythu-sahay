@@ -3,49 +3,32 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import Expert, Farmer, Worker
-from app.services.seed import pwd_context
+from app.models import Farmer, Worker
 
 security = HTTPBearer(auto_error=False)
 ALGORITHM = "HS256"
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
-def create_access_token(principal: Expert | Farmer | Worker, principal_type: str | None = None) -> str:
+def create_access_token(principal: Farmer | Worker, principal_type: str | None = None) -> str:
     settings = get_settings()
     if principal_type is None:
-        principal_type = "expert" if isinstance(principal, Expert) else "farmer" if isinstance(principal, Farmer) else "worker"
+        principal_type = "farmer" if isinstance(principal, Farmer) else "worker"
     payload = {
         "sub": str(principal.id),
         "principal_type": principal_type,
         "exp": datetime.now(timezone.utc) + timedelta(hours=8),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
-
-
-def require_expert(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: Session = Depends(get_db),
-) -> Expert:
-    if credentials is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Expert authentication is required.")
-    try:
-        data = jwt.decode(credentials.credentials, get_settings().secret_key, algorithms=[ALGORITHM])
-        if data.get("principal_type") != "expert":
-            raise ValueError("Token is not for an expert.")
-        expert = db.get(Expert, int(data["sub"]))
-    except (jwt.PyJWTError, KeyError, ValueError):
-        expert = None
-    if expert is None or not expert.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired expert session.")
-    return expert
 
 
 def _authenticated_principal(

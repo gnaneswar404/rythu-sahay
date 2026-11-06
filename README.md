@@ -1,25 +1,28 @@
 # RYTHU SAHAYA
 
-RYTHU SAHAYA is a Telugu-first, case-resolution MVP for **cotton farmers in Nalgonda district, Telangana**. It is designed around one workflow: **Advice → Action → Verification → Resolution**.
+RYTHU SAHAYA is a Telugu-first case-recording and labor-marketplace MVP for **cotton farmers in Nalgonda district, Telangana**.
 
-This is intentionally not a generic chatbot. The API rejects non-Nalgonda districts and non-cotton crops. The farmer interface is Telugu-first, works with typing and a large keypad, and uses browser speech recognition and browser speech synthesis when available. The expert dashboard handles triage, assignment, expert notes, follow-ups, and farmer outcomes.
+The app provides farmer and worker marketplace accounts, a searchable public view of job listings and available workers, a farmer case list, and a Telugu-first API for recording cotton crop cases. Recruiting requires a farmer account; applying for work requires a worker account. There is no expert sign-in or case-management dashboard.
 
-> **Demo safety notice:** Seeded farmers, cases, experts, and knowledge records are explicitly synthetic demonstration data. Bundled knowledge does not include pesticide names, chemical application rates, or treatment dosages, and it is not described as expert-approved guidance.
+> **Demo safety notice:** Seeded farmers, cases, and knowledge records are explicitly synthetic demonstration data. Bundled knowledge does not include pesticide names, chemical application rates, or treatment dosages, and it is not a diagnosis or verified treatment guidance.
 
 ## What is implemented
 
-- React/Vite/Tailwind farmer experience with large Telugu microphone control, text fallback, keypad fallback, consent control, optional crop-photo upload, session end, and outcome feedback.
-- English/Telugu language switch for the farmer and expert screens; the selection is remembered in the browser.
-- FastAPI application with SQLite fallback, SQLAlchemy models, input validation, CORS, health check, Google OAuth expert sign-in, password hashing for local demo accounts, signed expert bearer tokens, indexes, and demo seeding.
-- Structured farmer, case, expert, action, follow-up, and conversation records.
+- React/Vite/Tailwind sign-in page and farmer/worker marketplace with an English/Telugu language switch remembered in the browser.
+- FastAPI application with SQLite fallback, SQLAlchemy models, input validation, CORS, health check, farmer/worker password hashing, signed account tokens, indexes, and demo seeding.
+- Structured farmer, case, action, follow-up, and conversation records.
 - Case IDs in `RS-YYYY-NNNN` format; statuses from `NEW` through `ESCALATED` and `RESOLVED`.
 - Server-side Nalgonda/cotton scope enforcement, including out-of-scope Telugu conversation response.
-- Expert dashboard with protected case search, filter, review, assignment, expert notes, status changes, and follow-up scheduling.
 - Farmer and worker accounts use role-specific username/password registration and signed sessions. Passwords are stored as bcrypt hashes; phone numbers are optional marketplace contact details, not login credentials.
-- Farmer dashboard for the signed-in farmer's own crop cases, plus a worker marketplace for job posting, radius-based matching, group applications, worker teams, wage negotiation, booking confirmation, same-day double-booking prevention, and post-confirmation call links.
+- Public job and worker listings support searching by work, name, skills, and location. Phone contact is shown only when the account owner opts in; exact coordinates are never exposed in public profiles.
+- Farmers and workers can upload JPEG, PNG, or WebP profile photos (up to 3 MB); the photo is shown with public marketplace listings.
+- Separate farmer and worker dashboards for posting work, finding workers/jobs, recruitment progress, applications, teams, profiles, and bookings. Matching supports 5/10/20 km searches, real-coordinate distance, same-village priority, village fallback, skills/wage indicators, and available-worker filtering.
+- Team applications recruit all members together with per-member confirmation and booking protection. Farmers can report a confirmed worker absent and reopen the position to search for available replacements.
+- Phone links are consent-gated both on public profiles and confirmed bookings. Existing records default to private; an additive startup migration adds the consent field without replacing tables.
+- Wage offers/counteroffers and the mutually accepted wage are shown in application/booking views. Historical wage trends are not displayed because no historical wage analytics are stored.
+- Farmers can dictate job descriptions using supported browser speech recognition (including Telugu where the browser provides it) and review all fields before publishing; manual entry remains available.
 - Configurable Supabase PostgreSQL connection via `SUPABASE_DATABASE_URL`; SQLite remains the local default.
 - Farmer feedback endpoint that escalates a case when the reported outcome is `WORSENED`.
-- Farmer photo uploads require the case access token, and photo reads are authenticated for experts rather than exposed through a public static upload directory.
 - Replaceable voice and telephony adapter boundaries, with honest local mock implementations. A mock webhook never claims a real number is active.
 - A tool-only AI action boundary (`AgriculturalAgentTools`) so an LLM integration can request validated actions without receiving database access.
 - OpenAPI documentation and API tests.
@@ -53,6 +56,8 @@ For Supabase, paste the PostgreSQL connection URI from the project's **Connect**
 
 The default `DATABASE_URL` uses local SQLite. It creates `backend/rythu_sahaya.db` when the backend starts. PostgreSQL support is included through `psycopg[binary]` in `backend/requirements.txt`; set `SUPABASE_DATABASE_URL` (recommended) or `DATABASE_URL` to a PostgreSQL connection URI with SSL enabled when using Supabase.
 
+Existing databases are not destructively migrated: legacy expert account rows and case-assignment columns are left untouched, but the application no longer maps, reads, or exposes them.
+
 ### 2. Start the backend
 
 ```powershell
@@ -77,22 +82,11 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-### Configure expert Google sign-in
-
-The expert login accepts Google accounts through Google Identity Services. The app never receives or checks a Google password. A verified Google account automatically receives an expert account on its first sign-in.
-
-1. In Google Cloud Console, configure the OAuth consent screen and create an OAuth client ID for a **Web application**.
-2. Add the app origin (for local development, `http://localhost:5173`) to the OAuth client's authorized JavaScript origins.
-3. Set the client ID in `backend/.env` as `GOOGLE_CLIENT_ID`, then restart the backend. The frontend obtains this public OAuth client ID from the API, so a second frontend environment variable is not required. (`VITE_GOOGLE_CLIENT_ID` remains available as an optional build-time override.)
-4. For Docker Compose, set `GOOGLE_CLIENT_ID` in the environment used to run Compose and restart the stack.
-
-Without these settings, Google sign-in is unavailable; the local demo account remains usable.
-
 ### Farmer and worker accounts
 
 Farmers and workers can create accounts with a username and password, then use the same credentials for later sign-ins. Usernames are case-insensitive and unique per account type. Passwords must be at least 8 characters; only bcrypt password hashes are stored. An optional phone number is for marketplace contact features only and is never used to register or authenticate.
 
-The farmer assistant associates new cases with the signed-in farmer. The farmer dashboard shows only that account's cases. Workers must set their location to get distance-ranked open jobs; farmers must set a location on each job to make it eligible for nearby matching. Contact phone numbers are hidden from search and negotiation responses and exposed to the other party only after a worker confirms the booking.
+Cases created through the conversation API are associated with the signed-in farmer when a farmer token is supplied. The farmer dashboard shows only that account's cases. GPS-enabled matches use worksite coordinates and Haversine distance. When GPS is unavailable, the service falls back to same-village matches; those results do not claim a distance. A profile consent checkbox controls public phone visibility and whether booking call details are shared.
 
 ### Local test commands
 
@@ -103,7 +97,7 @@ cd ..\frontend
 npm run build
 ```
 
-Marketplace API tests cover farmer and worker registration, repeat sign-in, role-specific sessions, and marketplace workflows. Supabase connectivity still requires credentials and is not covered by the local tests.
+Marketplace API tests cover farmer and worker registration, repeat sign-in, role-specific sessions, booking-participant chat, and marketplace workflows. Supabase connectivity still requires credentials and is not covered by the local tests.
 
 ### Alternative: Docker Compose
 
@@ -113,29 +107,20 @@ docker compose up --build
 
 The Compose setup uses SQLite for a no-credential local demo. It may take longer on its first run while it downloads Python and Node images.
 
-## Hackathon demo script
+## Demo flow
 
-1. Open the farmer site, check consent, and choose **సహాయం ప్రారంభించండి**.
-2. Tap the microphone (in a compatible browser) or enter: `నా పత్తి పంట ఆకులు పసుపు రంగులోకి మారుతున్నాయి.`
-3. Answer the next four small questions: duration, symptoms, village, and mandal. The browser shows each Telugu response and speaks it where supported.
-4. Observe the structured case acknowledgement, e.g. `RS-2026-0002`. It states that expert review is needed rather than claiming a diagnosis.
-5. Use **నిపుణుల లాగిన్**. The prefilled synthetic demo account is:
-
-   - Email: `demo.expert@example.com`
-   - Password: `demo-expert`
-
-6. Filter/search the case, select it, then choose **నాకు కేటాయించు**.
-7. Add an expert note, save it, and schedule a follow-up date.
-8. Return to the farmer experience and record `మెరుగుపడింది`, `మార్పు లేదు`, or `దిగజారింది`. A worsening report automatically changes the case to `ESCALATED`.
+1. Select English or Telugu on the landing page.
+2. Open the profile menu and sign in or register as a farmer or worker.
+3. Use the farmer marketplace to manage a profile, view the account's crop cases, and use the labor marketplace. Workers can complete a profile and find nearby jobs.
+4. The crop-case conversation endpoints remain available through the API. Case responses are not diagnoses; consult a local agricultural officer for advice.
 
 ## Safety and scope rules
 
 - Pilot scope is **Telugu-speaking cotton farmers in Nalgonda district only**. Both UI wording and Pydantic validation enforce this; out-of-scope case creation returns a useful validation error.
-- No bundled knowledge item is presented as a verified diagnosis or as expert approval. Uncertainty, potential severity, or missing verified information leads to expert review.
+- No bundled knowledge item is presented as a verified diagnosis. Uncertainty or potentially severe symptoms should be taken to a local agricultural officer.
 - The UI deliberately does not advise pesticide products, active ingredients, concentrations, or dosages.
-- There is no claim that a phone number, SMS reminder, Sarvam service, or Exotel connection is active. Until credentials and provider contracts are configured, mock mode remains enabled.
-- Expert pages are bearer-token protected. Demo credentials are for the local MVP only; replace the default secret and bootstrap real accounts before deployment.
-- The worker marketplace is currently scoped to one work date per booking and a maximum 100 km search radius. A team's leader submits the application; every reserved worker confirms their own booking.
+- Sarvam and Exotel are not integrated in this workspace. The Sarvam key is not configured, the backend speech provider remains a mock, and browser speech dictation depends on browser support and permission. No SMS or real telephony provider is claimed active.
+- The worker marketplace is scoped to one work date per booking and a maximum 100 km API radius (dashboard presets are 5, 10, and 20 km). A team's leader submits the application; every reserved worker confirms their own booking.
 - Supabase schema setup currently uses SQLAlchemy `create_all` plus a small compatibility migration, not a versioned Alembic migration workflow. Back up production data and use a formal migration process before future schema changes.
 - Farmer and worker authentication uses stored bcrypt password hashes. Supabase connectivity has not been verified in this credential-free workspace.
 
@@ -151,7 +136,7 @@ The Compose setup uses SQLite for a no-credential local demo. It may take longer
 
 ### LLM agent integration
 
-The deterministic Telugu conversation service is the credential-free hackathon fallback. When a tool-calling LLM is enabled, give it only `AgriculturalAgentTools` from `backend/app/agents/tools.py`—never an ORM session or database connection. Its available actions map to validated operations such as `create_farmer`, `create_case`, `get_verified_guidance`, `assign_expert`, `update_case_status`, `schedule_followup`, and `record_farmer_feedback`. The agent must wait for a tool result before confirming that any case, assignment, or follow-up exists.
+The deterministic Telugu conversation service is the credential-free hackathon fallback. When a tool-calling LLM is enabled, give it only `AgriculturalAgentTools` from `backend/app/agents/tools.py`—never an ORM session or database connection. Its available actions map to validated operations such as `create_farmer`, `create_case`, `get_verified_guidance`, and `record_farmer_feedback`. The agent must wait for a tool result before confirming that any case or feedback exists.
 
 ## Tests
 
@@ -160,4 +145,4 @@ cd backend
 pytest
 ```
 
-The API test confirms health, district rejection, Telugu conversation-to-case creation, expert sign-in, expert access, and a status update. See [docs/API.md](docs/API.md) for endpoint details.
+The API tests cover health, district rejection, demo seeding, removed expert endpoints, Telugu conversation-to-case creation, and farmer feedback. See [docs/API.md](docs/API.md) for endpoint details.

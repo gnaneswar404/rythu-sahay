@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.knowledge.repository import get_verified_guidance
 from app.models import Farmer
-from app.schemas.cases import AssignmentCreate, CaseCreate, FeedbackCreate, FollowupCreate, StatusUpdate
+from app.schemas.cases import CaseCreate, FeedbackCreate
 from app.schemas.farmers import FarmerCreate
-from app.services.cases import assign_case, create_case, record_feedback, schedule_followup, update_status
+from app.services.cases import create_case, record_feedback
 
 
 class AgriculturalAgentTools:
@@ -28,15 +28,6 @@ class AgriculturalAgentTools:
 
     def get_verified_guidance(self, query: str) -> dict | None:
         return get_verified_guidance(query)
-
-    def assign_expert(self, case_id: str, expert_id: int):
-        return assign_case(self._db, case_id, AssignmentCreate(expert_id=expert_id))
-
-    def update_case_status(self, case_id: str, payload: StatusUpdate):
-        return update_status(self._db, case_id, payload)
-
-    def schedule_followup(self, case_id: str, payload: FollowupCreate):
-        return schedule_followup(self._db, case_id, payload)
 
     def record_farmer_feedback(self, case_id: str, payload: FeedbackCreate):
         return record_feedback(self._db, case_id, payload)

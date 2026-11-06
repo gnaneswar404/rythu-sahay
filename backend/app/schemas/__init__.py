@@ -1,4 +1,4 @@
-from app.schemas.cases import CaseCreate, CaseDetail, CaseRead
+from app.schemas.cases import CaseCreate, CaseRead
 from app.schemas.farmers import FarmerCreate, FarmerRead
 
-__all__ = ["CaseCreate", "CaseDetail", "CaseRead", "FarmerCreate", "FarmerRead"]
+__all__ = ["CaseCreate", "CaseRead", "FarmerCreate", "FarmerRead"]

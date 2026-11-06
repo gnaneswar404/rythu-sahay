@@ -1,25 +1,20 @@
 import axios from 'axios'
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' })
-let expertToken = null
+const apiBaseUrl = import.meta.env.VITE_API_URL || '/api/v1'
 let marketToken = window.sessionStorage.getItem('rythu-market-token')
 
+export const resolveProfilePhotoUrl = (photoUrl) => {
+  if (!photoUrl) return null
+  const apiOrigin = new URL(apiBaseUrl, window.location.origin)
+  return new URL(photoUrl, apiOrigin).toString()
+}
+
 api.interceptors.request.use((config) => {
-  const url = config.url || ''
-  const method = (config.method || 'get').toLowerCase()
-  const expertOnly = url.startsWith('/dashboard/')
-    || url === '/auth/me'
-    || (url.startsWith('/cases/') && !url.endsWith('/feedback') && !(method === 'post' && url.endsWith('/photos')))
-    || (url === '/cases' && method === 'get')
-  const token = expertOnly ? expertToken : marketToken
-  if (token) config.headers.Authorization = `Bearer ${token}`
+  if (marketToken) config.headers.Authorization = `Bearer ${marketToken}`
   else delete config.headers.Authorization
   return config
 })
-
-export const setExpertToken = (token) => {
-  expertToken = token || null
-}
 
 export const setMarketToken = (token, account) => {
   if (token) {
@@ -40,11 +35,6 @@ export const farmerApi = {
   feedback: (caseId, payload, accessToken) => api.post(`/cases/${caseId}/feedback`, payload, {
     headers: accessToken ? { 'X-Case-Access-Token': accessToken } : {},
   }),
-  uploadPhoto: (caseId, accessToken, photo) => {
-    const body = new FormData()
-    body.append('photo', photo)
-    return api.post(`/cases/${caseId}/photos`, body, { headers: { 'X-Case-Access-Token': accessToken } })
-  },
 }
 
 export const marketAuthApi = {
@@ -53,16 +43,35 @@ export const marketAuthApi = {
 }
 
 export const marketApi = {
+  publicJobs: (search) => api.get('/market/public/jobs', { params: search ? { search } : {} }),
+  publicWorkers: (search) => api.get('/market/public/workers', { params: search ? { search } : {} }),
+  publicProfile: (accountType, accountId) => api.get(`/market/public/profiles/${accountType}/${accountId}`),
   farmerCases: () => api.get('/market/farmer/cases'),
   farmerProfile: () => api.get('/market/farmer/profile'),
   updateFarmerProfile: (payload) => api.patch('/market/farmer/profile', payload),
+  uploadFarmerProfilePhoto: (photo) => {
+    const formData = new FormData()
+    formData.append('photo', photo)
+    return api.post('/market/farmer/profile/photo', formData)
+  },
+  deleteFarmerProfilePhoto: () => api.delete('/market/farmer/profile/photo'),
   workerProfile: () => api.get('/market/worker/profile'),
   updateWorkerProfile: (payload) => api.patch('/market/worker/profile', payload),
+  uploadWorkerProfilePhoto: (photo) => {
+    const formData = new FormData()
+    formData.append('photo', photo)
+    return api.post('/market/worker/profile/photo', formData)
+  },
+  deleteWorkerProfilePhoto: () => api.delete('/market/worker/profile/photo'),
   createJob: (payload) => api.post('/market/jobs', payload),
   myJobs: () => api.get('/market/jobs/mine'),
   nearbyJobs: (radiusKm) => api.get('/market/jobs/nearby', { params: { radius_km: radiusKm } }),
   nearbyWorkers: (radiusKm) => api.get('/market/workers/nearby', { params: { radius_km: radiusKm } }),
   bookWorker: (jobId, workerId) => api.post(`/market/jobs/${jobId}/workers/${workerId}/book`),
+  reportWorkerAbsence: (bookingId) => api.post(`/market/farmer/bookings/${bookingId}/report-absence`),
+  replacementWorkers: (bookingId, radiusKm = 20) => api.get(`/market/farmer/bookings/${bookingId}/replacements`, {
+    params: { radius_km: radiusKm },
+  }),
   createTeam: (payload) => api.post('/market/teams', payload),
   myTeams: () => api.get('/market/teams'),
   addTeamMember: (teamId, payload) => api.post(`/market/teams/${teamId}/members`, payload),
@@ -78,20 +87,6 @@ export const marketApi = {
   confirmBooking: (bookingId) => api.post(`/market/worker/bookings/${bookingId}/confirm`),
   cancelWorkerBooking: (bookingId) => api.post(`/market/worker/bookings/${bookingId}/cancel`),
   cancelFarmerBooking: (bookingId) => api.post(`/market/farmer/bookings/${bookingId}/cancel`),
-}
-
-export const expertApi = {
-  login: (payload) => api.post('/auth/login', payload),
-  googleConfig: () => api.get('/auth/google/config'),
-  googleLogin: (credential) => api.post('/auth/google', { credential }),
-  me: () => api.get('/auth/me'),
-  updateMe: (payload) => api.patch('/auth/me', payload),
-  summary: () => api.get('/dashboard/summary'),
-  cases: (params) => api.get('/cases', { params }),
-  caseDetail: (caseId) => api.get(`/cases/${caseId}`),
-  casePhoto: (caseId, filename) => api.get(`/cases/${caseId}/photos/${encodeURIComponent(filename)}`, { responseType: 'blob' }),
-  status: (caseId, payload) => api.patch(`/cases/${caseId}/status`, payload),
-  assign: (caseId, payload) => api.post(`/cases/${caseId}/assign`, payload),
-  note: (caseId, payload) => api.post(`/cases/${caseId}/notes`, payload),
-  followup: (caseId, payload) => api.post(`/cases/${caseId}/followups`, payload),
+  bookingMessages: (accountType, bookingId) => api.get(`/market/${accountType}/bookings/${bookingId}/messages`),
+  sendBookingMessage: (accountType, bookingId, payload) => api.post(`/market/${accountType}/bookings/${bookingId}/messages`, payload),
 }

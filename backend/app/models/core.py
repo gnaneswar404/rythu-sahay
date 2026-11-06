@@ -2,7 +2,7 @@ import enum
 import secrets
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func, text
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -38,6 +38,9 @@ class Farmer(Base):
     mandal: Mapped[str | None] = mapped_column(String(120), index=True, nullable=True)
     latitude: Mapped[float | None] = mapped_column(nullable=True)
     longitude: Mapped[float | None] = mapped_column(nullable=True)
+    profile_photo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    profile_photo_media_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    allow_phone_contact: Mapped[bool] = mapped_column(Boolean, default=False)
     district: Mapped[str] = mapped_column(String(120), default="Nalgonda")
     preferred_language: Mapped[str] = mapped_column(String(20), default="te")
     consent_recording: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -46,22 +49,6 @@ class Farmer(Base):
 
     cases: Mapped[list["Case"]] = relationship(back_populates="farmer", cascade="all, delete-orphan")
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="farmer", cascade="all, delete-orphan")
-
-
-class Expert(Base):
-    __tablename__ = "experts"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(120))
-    role: Mapped[str] = mapped_column(String(80), default="Agricultural Expert")
-    contact: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    email: Mapped[str] = mapped_column(String(120), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    assigned_cases: Mapped[list["Case"]] = relationship(back_populates="expert")
 
 
 class Case(Base):
@@ -86,15 +73,12 @@ class Case(Base):
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     recommended_next_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolution_outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
-    image_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
     farmer_access_token: Mapped[str] = mapped_column(String(100), unique=True, index=True, default=lambda: secrets.token_urlsafe(24))
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
-    expert_id: Mapped[int | None] = mapped_column(ForeignKey("experts.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     farmer: Mapped[Farmer] = relationship(back_populates="cases")
-    expert: Mapped[Expert | None] = relationship(back_populates="assigned_cases")
     actions: Mapped[list["CaseAction"]] = relationship(back_populates="case", cascade="all, delete-orphan", order_by="CaseAction.created_at")
     followups: Mapped[list["Followup"]] = relationship(back_populates="case", cascade="all, delete-orphan", order_by="Followup.scheduled_date")
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="case", cascade="all, delete-orphan")
@@ -155,6 +139,9 @@ class Worker(Base):
     mandal: Mapped[str | None] = mapped_column(String(120), nullable=True)
     latitude: Mapped[float | None] = mapped_column(nullable=True)
     longitude: Mapped[float | None] = mapped_column(nullable=True)
+    profile_photo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    profile_photo_media_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    allow_phone_contact: Mapped[bool] = mapped_column(Boolean, default=False)
     skills: Mapped[str] = mapped_column(Text, default="")
     daily_wage: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
@@ -257,4 +244,20 @@ class JobBooking(Base):
     application: Mapped[JobApplication] = relationship()
     job: Mapped[MarketJob] = relationship()
     worker: Mapped[Worker] = relationship()
+    messages: Mapped[list["JobBookingMessage"]] = relationship(
+        back_populates="booking", cascade="all, delete-orphan", order_by="JobBookingMessage.created_at"
+    )
 
+
+class JobBookingMessage(Base):
+    __tablename__ = "job_booking_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    booking_id: Mapped[int] = mapped_column(ForeignKey("job_bookings.id", ondelete="CASCADE"), index=True)
+    sender_type: Mapped[str] = mapped_column(String(12))
+    sender_id: Mapped[int] = mapped_column(Integer)
+    sender_name: Mapped[str] = mapped_column(String(120))
+    message: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    booking: Mapped[JobBooking] = relationship(back_populates="messages")

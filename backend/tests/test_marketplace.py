@@ -1,11 +1,9 @@
 from datetime import date, timedelta
-from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
-import app.api.cases as cases_api
 from app.database.session import SessionLocal
 from app.models import JobApplication, JobBooking, MarketJob
 from app.main import app
@@ -67,6 +65,16 @@ def test_farmer_can_book_nearby_worker_and_worker_confirms_booking():
     with TestClient(app) as client:
         farmer_headers, farmer = sign_in(client, "farmer", farmer_phone)
         worker_headers, worker = sign_in(client, "worker", worker_phone)
+        assert client.patch(
+            "/api/v1/market/farmer/profile",
+            headers=farmer_headers,
+            json={"name": "Calling farmer", "allow_phone_contact": True},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/market/worker/profile",
+            headers=worker_headers,
+            json={"name": "Calling worker", "allow_phone_contact": True},
+        ).status_code == 200
         job = client.post(
             "/api/v1/market/jobs",
             headers=farmer_headers,
@@ -102,6 +110,7 @@ def test_farmer_can_book_nearby_worker_and_worker_confirms_booking():
         assert confirmed.status_code == 200
         assert confirmed.json()["status"] == "CONFIRMED"
         assert confirmed.json()["farmer_phone"] == farmer_phone
+        assert confirmed.json()["worker_phone"] == worker_phone
 
         duplicate = client.post(
             f"/api/v1/market/jobs/{job.json()['id']}/workers/{worker['id']}/book",
@@ -110,15 +119,250 @@ def test_farmer_can_book_nearby_worker_and_worker_confirms_booking():
         assert duplicate.status_code == 409
 
 
-def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_path):
+def test_logged_out_marketplace_lists_public_jobs_and_available_workers():
+    with TestClient(app) as client:
+        farmer_headers, _ = sign_in(client, "farmer", phone())
+        worker_headers, worker = sign_in(client, "worker", phone())
+        recruiter_name = f"Recruiter Searchable {uuid4().hex[:8]}"
+        worker_name = f"Worker Searchable {uuid4().hex[:8]}"
+        assert client.patch(
+            "/api/v1/market/farmer/profile",
+            headers=farmer_headers,
+            json={"name": recruiter_name, "village": "Nalgonda", "mandal": "Nalgonda"},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/market/worker/profile",
+            headers=worker_headers,
+            json={
+                "name": worker_name,
+                "village": "Nalgonda",
+                "mandal": "Nalgonda",
+                "skills": "cotton picking",
+                "daily_wage": 650,
+                "is_available": True,
+            },
+        ).status_code == 200
+        created_job = client.post(
+            "/api/v1/market/jobs",
+            headers=farmer_headers,
+            json={
+                "title": "Public cotton picking job",
+                "village": "Nalgonda",
+                "mandal": "Nalgonda",
+                "work_date": (date.today() + timedelta(days=1)).isoformat(),
+                "daily_wage": 650,
+                "required_workers": 2,
+            },
+        )
+        assert created_job.status_code == 201
+
+        jobs = client.get("/api/v1/market/public/jobs", params={"search": recruiter_name})
+        workers = client.get("/api/v1/market/public/workers", params={"search": worker_name})
+        assert jobs.status_code == 200
+        matching_job = next(item for item in jobs.json() if item["id"] == created_job.json()["id"])
+        assert matching_job["recruiter_name"] == recruiter_name
+        assert "farmer_id" not in matching_job
+        assert "latitude" not in matching_job
+        assert workers.status_code == 200
+        matching_worker = next(item for item in workers.json() if item["id"] == worker["id"])
+        assert matching_worker["name"] == worker_name
+        assert "phone" not in matching_worker
+        assert "latitude" not in matching_worker
+
+
+def test_farmer_and_worker_can_upload_and_remove_public_profile_photos():
+    with TestClient(app) as client:
+        farmer_headers, _ = sign_in(client, "farmer", phone())
+        worker_headers, worker = sign_in(client, "worker", phone())
+        assert client.patch(
+            "/api/v1/market/farmer/profile",
+            headers=farmer_headers,
+            json={"name": "Photo recruiter", "village": "Nalgonda", "mandal": "Nalgonda", "latitude": 17.1, "longitude": 79.2},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/market/worker/profile",
+            headers=worker_headers,
+            json={
+                "name": "Photo worker", "village": "Nalgonda", "mandal": "Nalgonda",
+                "latitude": 17.2, "longitude": 79.3, "skills": "cotton picking",
+                "daily_wage": 650, "is_available": True,
+            },
+        ).status_code == 200
+        farmer_image = b"\x89PNG\r\n\x1a\nfarmer-photo"
+        worker_image = b"\xff\xd8\xffworker-photo"
+
+        assert client.post(
+            "/api/v1/market/farmer/profile/photo",
+            headers=worker_headers,
+            files={"photo": ("farmer.png", farmer_image, "image/png")},
+        ).status_code == 401
+        bad_type = client.post(
+            "/api/v1/market/worker/profile/photo",
+            headers=worker_headers,
+            files={"photo": ("photo.svg", b"<svg></svg>", "image/svg+xml")},
+        )
+        assert bad_type.status_code == 415
+        too_large = client.post(
+            "/api/v1/market/worker/profile/photo",
+            headers=worker_headers,
+            files={"photo": ("large.png", b"\x89PNG\r\n\x1a\n" + b"x" * (3 * 1024 * 1024), "image/png")},
+        )
+        assert too_large.status_code == 413
+
+        farmer_upload = client.post(
+            "/api/v1/market/farmer/profile/photo",
+            headers=farmer_headers,
+            files={"photo": ("farmer.png", farmer_image, "image/png")},
+        )
+        worker_upload = client.post(
+            "/api/v1/market/worker/profile/photo",
+            headers=worker_headers,
+            files={"photo": ("worker.jpg", worker_image, "image/jpeg")},
+        )
+        assert farmer_upload.status_code == worker_upload.status_code == 200
+        job = client.post(
+            "/api/v1/market/jobs",
+            headers=farmer_headers,
+            json={
+                "title": "Photo listing job",
+                "village": "Nalgonda",
+                "mandal": "Nalgonda",
+                "work_date": (date.today() + timedelta(days=1)).isoformat(),
+                "daily_wage": 650,
+                "required_workers": 1,
+            },
+        )
+        assert job.status_code == 201
+        assert client.get("/api/v1/market/farmer/profile", headers=farmer_headers).json()["profile_photo_url"] == farmer_upload.json()["profile_photo_url"]
+        assert client.get("/api/v1/market/worker/profile", headers=worker_headers).json()["profile_photo_url"] == worker_upload.json()["profile_photo_url"]
+        private_farmer_profile = client.get("/api/v1/market/farmer/profile", headers=farmer_headers).json()
+        private_worker_profile = client.get("/api/v1/market/worker/profile", headers=worker_headers).json()
+        public_farmer = client.get(f"/api/v1/market/public/profiles/farmer/{private_farmer_profile['id']}")
+        public_worker = client.get(f"/api/v1/market/public/profiles/worker/{private_worker_profile['id']}")
+        assert public_farmer.status_code == public_worker.status_code == 200
+        assert public_farmer.json()["phone"] is None
+        assert public_worker.json()["phone"] is None
+        assert "latitude" not in public_farmer.json()
+        assert "longitude" not in public_farmer.json()
+        assert "latitude" not in public_worker.json()
+        assert "longitude" not in public_worker.json()
+        assert client.patch(
+            "/api/v1/market/farmer/profile",
+            headers=farmer_headers,
+            json={"name": "Photo recruiter", "allow_phone_contact": True},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/market/worker/profile",
+            headers=worker_headers,
+            json={"name": "Photo worker", "allow_phone_contact": True},
+        ).status_code == 200
+        public_farmer = client.get(f"/api/v1/market/public/profiles/farmer/{private_farmer_profile['id']}")
+        public_worker = client.get(f"/api/v1/market/public/profiles/worker/{private_worker_profile['id']}")
+        assert public_farmer.json()["phone"] == private_farmer_profile["phone"]
+        assert public_worker.json()["phone"] == private_worker_profile["phone"]
+        assert public_worker.json()["skills"] == "cotton picking"
+
+        farmer_photo = client.get(farmer_upload.json()["profile_photo_url"])
+        worker_photo = client.get(worker_upload.json()["profile_photo_url"])
+        assert farmer_photo.content == farmer_image
+        assert farmer_photo.headers["content-type"] == "image/png"
+        assert worker_photo.content == worker_image
+        assert worker_photo.headers["content-type"] == "image/jpeg"
+        job_listing = client.get("/api/v1/market/public/jobs").json()
+        photo_job_listing = next(item for item in job_listing if item["id"] == job.json()["id"])
+        assert photo_job_listing["recruiter_photo_url"] == farmer_upload.json()["profile_photo_url"]
+        assert photo_job_listing["recruiter_id"] == private_farmer_profile["id"]
+        worker_listing = client.get("/api/v1/market/public/workers").json()
+        assert next(item for item in worker_listing if item["id"] == worker["id"])["profile_photo_url"] == worker_upload.json()["profile_photo_url"]
+
+        replacement_photo = b"\xff\xd8\xffreplacement-photo"
+        replacement_upload = client.post(
+            "/api/v1/market/worker/profile/photo",
+            headers=worker_headers,
+            files={"photo": ("new-worker.jpg", replacement_photo, "image/jpeg")},
+        )
+        assert replacement_upload.status_code == 200
+        assert replacement_upload.json()["profile_photo_url"] != worker_upload.json()["profile_photo_url"]
+        assert client.get(replacement_upload.json()["profile_photo_url"]).content == replacement_photo
+        worker_listing = client.get("/api/v1/market/public/workers").json()
+        assert next(item for item in worker_listing if item["id"] == worker["id"])["profile_photo_url"] == replacement_upload.json()["profile_photo_url"]
+
+        removed = client.delete("/api/v1/market/worker/profile/photo", headers=worker_headers)
+        assert removed.status_code == 200
+        assert removed.json()["profile_photo_url"] is None
+        assert client.get(replacement_upload.json()["profile_photo_url"]).status_code == 404
+
+
+def test_booking_chat_is_shared_only_with_booking_farmer_and_worker():
+    with TestClient(app) as client:
+        farmer_headers, _ = sign_in(client, "farmer", phone())
+        worker_headers, worker = sign_in(client, "worker", phone())
+        other_farmer_headers, _ = sign_in(client, "farmer", phone())
+        job = client.post(
+            "/api/v1/market/jobs",
+            headers=farmer_headers,
+            json={
+                "title": "Field work",
+                "village": "Nalgonda",
+                "mandal": "Nalgonda",
+                "work_date": (date.today() + timedelta(days=2)).isoformat(),
+                "daily_wage": 700,
+                "required_workers": 1,
+            },
+        )
+        booking = client.post(
+            f"/api/v1/market/jobs/{job.json()['id']}/workers/{worker['id']}/book",
+            headers=farmer_headers,
+        )
+        booking_id = booking.json()["id"]
+
+        sent = client.post(
+            f"/api/v1/market/farmer/bookings/{booking_id}/messages",
+            headers=farmer_headers,
+            json={"message": "Please arrive at 8 AM."},
+        )
+        assert sent.status_code == 201
+        received = client.get(
+            f"/api/v1/market/worker/bookings/{booking_id}/messages",
+            headers=worker_headers,
+        )
+        assert received.status_code == 200
+        assert received.json()[0]["message"] == "Please arrive at 8 AM."
+        assert received.json()[0]["sender_type"] == "farmer"
+
+        reply = client.post(
+            f"/api/v1/market/worker/bookings/{booking_id}/messages",
+            headers=worker_headers,
+            json={"message": "I will be there."},
+        )
+        assert reply.status_code == 201
+        farmer_messages = client.get(
+            f"/api/v1/market/farmer/bookings/{booking_id}/messages",
+            headers=farmer_headers,
+        )
+        assert [item["message"] for item in farmer_messages.json()] == [
+            "Please arrive at 8 AM.",
+            "I will be there.",
+        ]
+        assert client.get(
+            f"/api/v1/market/farmer/bookings/{booking_id}/messages",
+            headers=other_farmer_headers,
+        ).status_code == 404
+        assert client.post(
+            f"/api/v1/market/farmer/bookings/{booking_id}/messages",
+            headers=farmer_headers,
+            json={"message": "   "},
+        ).status_code == 422
+
+
+def test_farmer_cases_and_complete_group_recruitment_workflow():
     farmer_phone = phone()
     worker_phone = phone()
     member_phone = phone()
     with TestClient(app) as client:
-        monkeypatch.setattr(cases_api, "get_settings", lambda: SimpleNamespace(upload_dir=str(tmp_path)))
         farmer_headers, farmer = sign_in(client, "farmer", farmer_phone)
         worker_headers, worker = sign_in(client, "worker", worker_phone)
-        member_headers, _ = sign_in(client, "worker", member_phone)
+        member_headers, member = sign_in(client, "worker", member_phone)
 
         profile = client.patch(
             "/api/v1/market/farmer/profile",
@@ -167,31 +411,6 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
             json={"outcome": "IMPROVED"},
         )
         assert feedback.status_code == 200, feedback.text
-        case_id = result.json()["case_id"]
-        upload_without_token = client.post(
-            f"/api/v1/cases/{case_id}/photos",
-            files={"photo": ("leaf.jpg", b"private-image", "image/jpeg")},
-        )
-        assert upload_without_token.status_code == 403
-        uploaded = client.post(
-            f"/api/v1/cases/{case_id}/photos",
-            headers={"X-Case-Access-Token": case_access_token},
-            files={"photo": ("leaf.jpg", b"private-image", "image/jpeg")},
-        )
-        assert uploaded.status_code == 201, uploaded.text
-        filename = uploaded.json()["url"].split("/")[-1]
-        assert client.get(uploaded.json()["url"]).status_code == 404
-        assert client.get(f"/api/v1/cases/{case_id}/photos/{filename}").status_code == 401
-        expert_login = client.post(
-            "/api/v1/auth/login",
-            json={"email": "demo.expert@example.com", "password": "demo-expert"},
-        )
-        assert expert_login.status_code == 200
-        expert_headers = {"Authorization": f"Bearer {expert_login.json()['access_token']}"}
-        photo = client.get(f"/api/v1/cases/{case_id}/photos/{filename}", headers=expert_headers)
-        assert photo.status_code == 200
-        assert photo.content == b"private-image"
-        assert photo.headers["cache-control"] == "private, no-store"
         assert client.post(
             "/api/v1/cases",
             json={"farmer_id": farmer["id"], "description": "Untrusted direct case"},
@@ -212,6 +431,9 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
         )
         assert job.status_code == 201, job.text
         job_id = job.json()["id"]
+        assert job.json()["interested_workers"] == 0
+        assert job.json()["confirmed_workers"] == 0
+        assert job.json()["remaining_workers"] == 2
         invalid_location = client.post(
             "/api/v1/market/jobs", headers=farmer_headers,
             json={
@@ -224,11 +446,17 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
         assert matches.status_code == 200
         matched_job = next(item for item in matches.json() if item["id"] == job_id)
         assert matched_job["distance_km"] < 1
+        assert matched_job["same_village"] is True
+        assert matched_job["skill_match"] is True
+        assert matched_job["wage_match"] is True
         assert client.get("/api/v1/market/jobs/nearby?radius_km=101", headers=worker_headers).status_code == 422
         worker_matches = client.get("/api/v1/market/workers/nearby", headers=farmer_headers)
         assert worker_matches.status_code == 200
         matched_worker = next(item for item in worker_matches.json() if item["id"] == worker["id"])
         assert matched_worker["distance_km"] < 1
+        assert matched_worker["same_village"] is True
+        assert matched_worker["skill_match"] is True
+        assert matched_worker["wage_match"] is True
         assert "phone" not in matched_worker
 
         team = client.post("/api/v1/market/teams", headers=worker_headers, json={"name": "Cotton Crew"})
@@ -237,10 +465,16 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
         add_member = client.post(
             f"/api/v1/market/teams/{team_id}/members",
             headers=worker_headers,
-            json={"phone": member_phone},
+            json={"username": member["username"].upper()},
         )
         assert add_member.status_code == 201, add_member.text
         assert len(add_member.json()["members"]) == 2
+        missing_member = client.post(
+            f"/api/v1/market/teams/{team_id}/members",
+            headers=worker_headers,
+            json={"username": f"missing-{uuid4().hex[:8]}"},
+        )
+        assert missing_member.status_code == 404
         unavailable = client.patch(
             "/api/v1/market/worker/profile",
             headers=member_headers,
@@ -289,6 +523,13 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
         assert len(pending_bookings) == 2
         assert {item["status"] for item in pending_bookings} == {"PENDING"}
         assert all(item["worker_phone"] is None for item in pending_bookings)
+        job_progress = next(
+            item for item in client.get("/api/v1/market/jobs/mine", headers=farmer_headers).json()
+            if item["id"] == job_id
+        )
+        assert job_progress["interested_workers"] == 2
+        assert job_progress["pending_workers"] == 2
+        assert job_progress["remaining_workers"] == 0
         pending_farmer_view = client.get("/api/v1/market/farmer/bookings", headers=farmer_headers)
         assert all(item["worker_phone"] is None for item in pending_farmer_view.json())
 
@@ -299,11 +540,11 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
             confirmed = client.post(f"/api/v1/market/worker/bookings/{booking['id']}/confirm", headers=headers)
             assert confirmed.status_code == 200, confirmed.text
             assert confirmed.json()["status"] == "CONFIRMED"
-            assert confirmed.json()["farmer_phone"] == farmer_phone
+            assert confirmed.json()["farmer_phone"] is None
 
         farmer_bookings = client.get("/api/v1/market/farmer/bookings", headers=farmer_headers)
         assert farmer_bookings.status_code == 200
-        assert all(item["worker_phone"] for item in farmer_bookings.json())
+        assert all(item["worker_phone"] is None for item in farmer_bookings.json())
 
         duplicate_job = client.post(
             "/api/v1/market/jobs", headers=farmer_headers,
@@ -341,3 +582,128 @@ def test_farmer_cases_and_complete_group_recruitment_workflow(monkeypatch, tmp_p
                 raise AssertionError("The database must reject two active bookings for one worker and date.")
             except IntegrityError:
                 db.rollback()
+
+
+def test_nearby_matching_uses_same_village_when_coordinates_are_missing():
+    with TestClient(app) as client:
+        farmer_headers, _ = sign_in(client, "farmer", phone())
+        worker_headers, _ = sign_in(client, "worker", phone())
+        assert client.patch(
+            "/api/v1/market/farmer/profile",
+            headers=farmer_headers,
+            json={"name": "Village Farmer", "village": "Nalgonda", "mandal": "Nalgonda"},
+        ).status_code == 200
+        assert client.patch(
+            "/api/v1/market/worker/profile",
+            headers=worker_headers,
+            json={
+                "name": "Village Worker", "village": " nalgonda ", "mandal": "Nalgonda",
+                "skills": "cotton picking", "daily_wage": 500, "is_available": True,
+            },
+        ).status_code == 200
+        job = client.post(
+            "/api/v1/market/jobs",
+            headers=farmer_headers,
+            json={
+                "title": "Cotton picking",
+                "village": "Nalgonda",
+                "mandal": "Nalgonda",
+                "work_date": (date.today() + timedelta(days=1)).isoformat(),
+                "daily_wage": 600,
+                "required_workers": 1,
+            },
+        )
+        assert job.status_code == 201, job.text
+        jobs = client.get("/api/v1/market/jobs/nearby?radius_km=5", headers=worker_headers)
+        match = next(item for item in jobs.json() if item["id"] == job.json()["id"])
+        assert match["distance_km"] is None
+        assert match["same_village"] is True
+        assert match["skill_match"] is True
+        assert match["wage_match"] is True
+        workers = client.get("/api/v1/market/workers/nearby?radius_km=5", headers=farmer_headers)
+        match = next(item for item in workers.json() if item["name"] == "Village Worker")
+        assert match["distance_km"] is None
+        assert match["same_village"] is True
+
+
+def test_absent_worker_can_be_replaced_with_consent_gated_contact():
+    with TestClient(app) as client:
+        farmer_headers, _ = sign_in(client, "farmer", phone())
+        booked_headers, booked_worker = sign_in(client, "worker", phone())
+        replacement_phone = phone()
+        replacement_headers, replacement_worker = sign_in(client, "worker", replacement_phone)
+        assert client.patch(
+            "/api/v1/market/farmer/profile",
+            headers=farmer_headers,
+            json={
+                "name": "Replacement Farmer", "village": "Nalgonda", "mandal": "Nalgonda",
+                "latitude": 17.0575, "longitude": 79.2684,
+            },
+        ).status_code == 200
+        for headers, name, can_call in (
+            (booked_headers, "Absent Worker", False),
+            (replacement_headers, "Replacement Worker", True),
+        ):
+            updated = client.patch(
+                "/api/v1/market/worker/profile",
+                headers=headers,
+                json={
+                    "name": name, "village": "Nalgonda", "mandal": "Nalgonda",
+                    "latitude": 17.06, "longitude": 79.27, "skills": "cotton picking",
+                    "daily_wage": 500, "is_available": True, "allow_phone_contact": can_call,
+                },
+            )
+            assert updated.status_code == 200, updated.text
+        job = client.post(
+            "/api/v1/market/jobs",
+            headers=farmer_headers,
+            json={
+                "title": "Cotton picking replacement",
+                "description": "Cotton picking",
+                "village": "Nalgonda",
+                "mandal": "Nalgonda",
+                "latitude": 17.0575,
+                "longitude": 79.2684,
+                "work_date": (date.today() + timedelta(days=1)).isoformat(),
+                "daily_wage": 600,
+                "required_workers": 1,
+            },
+        )
+        assert job.status_code == 201, job.text
+        booked = client.post(
+            f"/api/v1/market/jobs/{job.json()['id']}/workers/{booked_worker['id']}/book",
+            headers=farmer_headers,
+        )
+        assert booked.status_code == 201
+        confirmation = client.post(
+            f"/api/v1/market/worker/bookings/{booked.json()['id']}/confirm",
+            headers=booked_headers,
+        )
+        assert confirmation.status_code == 200
+        assert confirmation.json()["worker_phone"] is None
+        absence = client.post(
+            f"/api/v1/market/farmer/bookings/{booked.json()['id']}/report-absence",
+            headers=farmer_headers,
+        )
+        assert absence.status_code == 200
+        assert absence.json()["status"] == "ABSENT"
+        progress = next(
+            item for item in client.get("/api/v1/market/jobs/mine", headers=farmer_headers).json()
+            if item["id"] == job.json()["id"]
+        )
+        assert progress["status"] == "OPEN"
+        assert progress["remaining_workers"] == 1
+        replacements = client.get(
+            f"/api/v1/market/farmer/bookings/{booked.json()['id']}/replacements?radius_km=5",
+            headers=farmer_headers,
+        )
+        assert replacements.status_code == 200, replacements.text
+        candidate = next(item for item in replacements.json() if item["id"] == replacement_worker["id"])
+        assert candidate.get("phone") == replacement_phone, candidate
+        assert candidate["skill_match"] is True
+        invited = client.post(
+            f"/api/v1/market/jobs/{job.json()['id']}/workers/{replacement_worker['id']}/book",
+            headers=farmer_headers,
+        )
+        assert invited.status_code == 201, invited.text
+        assert invited.json()["worker_phone"] is None

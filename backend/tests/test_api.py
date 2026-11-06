@@ -1,5 +1,4 @@
 import os
-from types import SimpleNamespace
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_rythu_sahaya.db"
 os.environ["SECRET_KEY"] = "test-secret-key"
@@ -8,30 +7,22 @@ from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import create_engine, select  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
-import app.api.auth as auth_api  # noqa: E402
 from app.database import Base  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Expert  # noqa: E402
+from app.models import Case  # noqa: E402
 from app.services.seed import seed_demo_data  # noqa: E402
 
 
-def test_seed_migrates_legacy_demo_email():
+def test_demo_seed_creates_farmer_case_without_expert_model():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(bind=engine)
     with Session(engine) as db:
-        db.add(Expert(
-            name="Demo Expert",
-            email="demo.expert@rythusahay.local",
-            password_hash="unchanged",
-            is_demo=True,
-        ))
-        db.commit()
-
         seed_demo_data(db)
-
-        expert = db.scalar(select(Expert))
-        assert expert.email == "demo.expert@example.com"
-        assert expert.password_hash == "unchanged"
+        case = db.scalar(select(Case).where(Case.is_demo.is_(True)))
+        assert case is not None
+        assert case.farmer.is_demo is True
+        assert "experts" not in Base.metadata.tables
+        assert "expert_id" not in Case.__table__.columns
     engine.dispose()
 
 
@@ -42,7 +33,28 @@ def test_health_and_scope_protection():
         assert blocked.status_code == 422
 
 
-def test_telugu_conversation_creates_a_case_and_expert_can_review():
+def test_expert_authentication_and_dashboard_routes_are_removed():
+    removed_paths = {
+        "/api/v1/auth/login",
+        "/api/v1/auth/google",
+        "/api/v1/auth/google/config",
+        "/api/v1/auth/me",
+        "/api/v1/dashboard/summary",
+        "/api/v1/cases/{case_id}",
+        "/api/v1/cases/{case_id}/status",
+        "/api/v1/cases/{case_id}/assign",
+        "/api/v1/cases/{case_id}/notes",
+        "/api/v1/cases/{case_id}/followups",
+        "/api/v1/cases/{case_id}/photos",
+        "/api/v1/farmers/{farmer_id}",
+    }
+    with TestClient(app) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+        assert removed_paths.isdisjoint(paths)
+        assert "get" not in paths["/api/v1/cases"]
+
+
+def test_telugu_conversation_creates_case_and_farmer_can_send_feedback():
     with TestClient(app) as client:
         start = client.post("/api/v1/calls/start", json={"consent_recording": True})
         assert start.status_code == 200
@@ -60,102 +72,11 @@ def test_telugu_conversation_creates_a_case_and_expert_can_review():
             assert reply.status_code == 200
         case_id = reply.json()["case_id"]
         assert case_id.startswith("RS-")
+        assert client.get(f"/api/v1/cases/{case_id}").status_code == 404
 
-        login = client.post("/api/v1/auth/login", json={"email": "DEMO.EXPERT@EXAMPLE.COM", "password": "demo-expert"})
-        assert login.status_code == 200
-        legacy_login = client.post(
-            "/api/v1/auth/login",
-            json={"email": "demo.expert@rythusahay.local", "password": "demo-expert"},
+        feedback = client.post(
+            f"/api/v1/cases/{case_id}/feedback",
+            headers={"X-Case-Access-Token": reply.json()["case_access_token"]},
+            json={"outcome": "WORSENED"},
         )
-        assert legacy_login.status_code == 200
-        token = login.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
-        detail = client.get(f"/api/v1/cases/{case_id}", headers=headers)
-        assert detail.status_code == 200
-        assert detail.json()["crop"] == "cotton"
-        status_update = client.patch(f"/api/v1/cases/{case_id}/status", headers=headers, json={"status": "UNDER_REVIEW"})
-        assert status_update.status_code == 200
-
-
-def test_google_login_verifies_identity_and_creates_expert(monkeypatch):
-    claims = {
-        "email": "new.expert@gmail.com",
-        "email_verified": True,
-        "sub": "google-user-123",
-        "name": "New Expert",
-    }
-    monkeypatch.setattr(auth_api, "get_settings", lambda: SimpleNamespace(google_client_id="test-client"))
-    monkeypatch.setattr(auth_api.id_token, "verify_oauth2_token", lambda token, request, audience: claims)
-
-    with TestClient(app) as client:
-        response = client.post("/api/v1/auth/google", json={"credential": "verified-test-token"})
-
-        assert response.status_code == 200
-        assert response.json()["expert_name"] == "New Expert"
-        second_response = client.post("/api/v1/auth/google", json={"credential": "verified-test-token"})
-        assert second_response.status_code == 200
-        assert second_response.json()["expert_id"] == response.json()["expert_id"]
-        expert = client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {response.json()['access_token']}"},
-        )
-        assert expert.status_code == 200
-        assert expert.json()["is_demo"] is False
-        assert expert.json()["email"] == "new.expert@gmail.com"
-        assert expert.json()["created_at"]
-
-
-def test_google_config_returns_the_public_client_id(monkeypatch):
-    monkeypatch.setattr(auth_api, "get_settings", lambda: SimpleNamespace(google_client_id="test-client"))
-
-    with TestClient(app) as client:
-        response = client.get("/api/v1/auth/google/config")
-
-    assert response.status_code == 200
-    assert response.json() == {"client_id": "test-client"}
-
-
-def test_signed_in_expert_can_complete_their_own_profile():
-    with TestClient(app) as client:
-        login = client.post(
-            "/api/v1/auth/login",
-            json={"email": "demo.expert@example.com", "password": "demo-expert"},
-        )
-        assert login.status_code == 200
-        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
-
-        update = client.patch(
-            "/api/v1/auth/me",
-            headers=headers,
-            json={"name": "Demo Profile Expert", "phone_number": "+91 98765 43210"},
-        )
-
-        assert update.status_code == 200
-        assert update.json()["name"] == "Demo Profile Expert"
-        assert update.json()["phone_number"] == "+91 98765 43210"
-        profile = client.get("/api/v1/auth/me", headers=headers)
-        assert profile.json()["email"] == "demo.expert@example.com"
-        assert profile.json()["phone_number"] == "+91 98765 43210"
-
-
-def test_google_login_rejects_unverified_email(monkeypatch):
-    claims = {
-        "email": "unverified@gmail.com",
-        "email_verified": False,
-        "sub": "google-user-456",
-        "name": "Unverified",
-    }
-    monkeypatch.setattr(auth_api, "get_settings", lambda: SimpleNamespace(google_client_id="test-client"))
-    monkeypatch.setattr(auth_api.id_token, "verify_oauth2_token", lambda token, request, audience: claims)
-
-    with TestClient(app) as client:
-        response = client.post("/api/v1/auth/google", json={"credential": "unverified-test-token"})
-        assert response.status_code == 401
-
-
-def test_google_login_requires_client_id(monkeypatch):
-    monkeypatch.setattr(auth_api, "get_settings", lambda: SimpleNamespace(google_client_id=None))
-
-    with TestClient(app) as client:
-        response = client.post("/api/v1/auth/google", json={"credential": "test-token"})
-        assert response.status_code == 503
+        assert feedback.status_code == 200

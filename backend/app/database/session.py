@@ -18,6 +18,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def migrate_compatible_schema():
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
+    binary_type = "BYTEA" if engine.dialect.name == "postgresql" else "BLOB"
     with engine.begin() as connection:
         if "farmers" in tables:
             columns = {column["name"] for column in inspector.get_columns("farmers")}
@@ -26,6 +27,9 @@ def migrate_compatible_schema():
                 ("longitude", "FLOAT"),
                 ("username", "VARCHAR(32)"),
                 ("password_hash", "VARCHAR(255)"),
+                ("profile_photo_data", binary_type),
+                ("profile_photo_media_type", "VARCHAR(32)"),
+                ("allow_phone_contact", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ):
                 if name not in columns:
                     connection.execute(text(f"ALTER TABLE farmers ADD COLUMN {name} {column_type}"))
@@ -35,7 +39,13 @@ def migrate_compatible_schema():
 
         if "workers" in tables:
             columns = {column["name"] for column in inspector.get_columns("workers")}
-            for name, column_type in (("username", "VARCHAR(32)"), ("password_hash", "VARCHAR(255)")):
+            for name, column_type in (
+                ("username", "VARCHAR(32)"),
+                ("password_hash", "VARCHAR(255)"),
+                ("profile_photo_data", binary_type),
+                ("profile_photo_media_type", "VARCHAR(32)"),
+                ("allow_phone_contact", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ):
                 if name not in columns:
                     connection.execute(text(f"ALTER TABLE workers ADD COLUMN {name} {column_type}"))
             connection.execute(text(

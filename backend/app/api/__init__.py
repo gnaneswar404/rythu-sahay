@@ -1,3 +1,3 @@
-from app.api import auth, calls, cases, dashboard, farmers, knowledge, marketplace, telephony
+from app.api import auth, calls, cases, farmers, knowledge, marketplace, telephony
 
-__all__ = ["auth", "calls", "cases", "dashboard", "farmers", "knowledge", "marketplace", "telephony"]
+__all__ = ["auth", "calls", "cases", "farmers", "knowledge", "marketplace", "telephony"]

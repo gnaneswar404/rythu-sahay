@@ -4,14 +4,13 @@
 
 - [x] Phase 1 project foundation and local SQLite fallback
 - [x] Core relational data models and API application shell
-- [x] React/Vite farmer and expert-facing application shell
+- [x] React/Vite farmer and worker application shell
 
 ## In progress
 
 - [x] Core case workflow and realistic demo data
 - [x] Telugu structured conversation and safe demonstration guidance retrieval
-- [x] Expert actions, follow-ups, and outcome tracking
-- [x] Browser voice-recognition and browser text-to-speech demo fallback
+- [x] Farmer outcome tracking
 - [x] Mock telephone webhook adapter and provider abstraction
 
 ## Requires real-world credentials or approval

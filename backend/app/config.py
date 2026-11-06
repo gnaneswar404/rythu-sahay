@@ -13,10 +13,8 @@ class Settings(BaseSettings):
     supabase_database_url: str | None = None
     secret_key: str = "local-development-only-change-me"
     cors_origins: str = "http://localhost:5173"
-    google_client_id: str | None = None
     mock_voice_enabled: bool = True
     mock_telephony_enabled: bool = True
-    upload_dir: str = "uploads"
     sarvam_api_key: str | None = None
     exotel_api_key: str | None = None
     exotel_api_token: str | None = None

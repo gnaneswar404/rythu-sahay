@@ -23,6 +23,7 @@ class WorkerProfileUpdate(LocationFields):
     skills: str = Field(default="", max_length=1000)
     daily_wage: int | None = Field(default=None, ge=1, le=100000)
     is_available: bool = True
+    allow_phone_contact: bool | None = None
 
 
 class FarmerProfileUpdate(LocationFields):
@@ -30,6 +31,7 @@ class FarmerProfileUpdate(LocationFields):
     village: str | None = Field(default=None, max_length=120)
     mandal: str | None = Field(default=None, max_length=120)
     preferred_language: str = Field(default="te", pattern="^(te|en)$")
+    allow_phone_contact: bool | None = None
 
 
 class MarketJobCreate(LocationFields):
@@ -47,17 +49,12 @@ class TeamCreate(ORMModel):
 
 
 class TeamMemberCreate(ORMModel):
-    phone: str = Field(min_length=10, max_length=16)
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[A-Za-z0-9._-]+$")
 
-    @field_validator("phone")
+    @field_validator("username")
     @classmethod
-    def normalize_phone(cls, value: str) -> str:
-        digits = "".join(character for character in value if character.isdigit())
-        if len(digits) == 10 and digits[0] in "6789":
-            digits = f"91{digits}"
-        if len(digits) != 12 or not digits.startswith("91") or digits[2] not in "6789":
-            raise ValueError("Enter a valid Indian mobile number.")
-        return f"+{digits}"
+    def normalize_username(cls, value: str) -> str:
+        return value.strip().lower()
 
 
 class ApplicationCreate(ORMModel):
@@ -67,3 +64,15 @@ class ApplicationCreate(ORMModel):
 
 class WageOffer(ORMModel):
     proposed_wage: int = Field(ge=1, le=100000)
+
+
+class BookingMessageCreate(ORMModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def normalize_message(cls, value: str) -> str:
+        message = value.strip()
+        if not message:
+            raise ValueError("Message cannot be empty.")
+        return message

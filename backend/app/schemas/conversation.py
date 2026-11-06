@@ -20,5 +20,4 @@ class ConversationReply(ORMModel):
     next_question_key: str | None = None
     case_id: str | None = None
     case_access_token: str | None = None
-    needs_expert_review: bool = False
     mock_voice: bool = True

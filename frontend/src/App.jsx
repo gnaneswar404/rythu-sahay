@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import FarmerAssistant from './pages/FarmerAssistant'
-import ExpertDashboard from './pages/ExpertDashboard'
 import Marketplace from './pages/Marketplace'
 
 function initialLanguage() {
@@ -30,18 +29,15 @@ export default function App() {
     document.title = language === 'en' ? 'Rythu Sahay | RYTHU SAHAYA' : 'రీతు సహాయ | RYTHU SAHAYA'
   }, [language])
 
-  const page = view === 'expert'
-    ? <ExpertDashboard language={language} onBack={() => setView('farmer')} />
-    : view === 'farmer-market'
-      ? <Marketplace key="farmer-market" accountType="farmer" language={language} onBack={() => setView('farmer')} />
-      : view === 'worker-market'
-        ? <Marketplace key="worker-market" accountType="worker" language={language} onBack={() => setView('farmer')} />
-        : <FarmerAssistant
-            language={language}
-            onExpertClick={() => setView('expert')}
-            onFarmerLogin={() => setView('farmer-market')}
-            onWorkerLogin={() => setView('worker-market')}
-          />
+  const page = view === 'farmer-market'
+    ? <Marketplace key="farmer-market" accountType="farmer" language={language} onBack={() => setView('farmer')} />
+    : view === 'worker-market'
+      ? <Marketplace key="worker-market" accountType="worker" language={language} onBack={() => setView('farmer')} />
+      : <FarmerAssistant
+          language={language}
+          onFarmerLogin={() => setView('farmer-market')}
+          onWorkerLogin={() => setView('worker-market')}
+        />
 
   return (
     <>

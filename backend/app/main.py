@@ -1,10 +1,8 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, calls, cases, dashboard, farmers, knowledge, marketplace, telephony
+from app.api import auth, calls, cases, farmers, knowledge, marketplace, telephony
 from app.config import get_settings
 from app.database import Base, engine, migrate_compatible_schema
 from app.database.session import SessionLocal
@@ -27,7 +25,7 @@ app = FastAPI(
     version="0.1.0",
     description=(
         "Telugu-first cotton crop problem-resolution MVP for Nalgonda district. "
-        "All bundled agricultural records are demonstration data unless expert-approved."
+        "All bundled agricultural records are demonstration data unless independently verified."
     ),
     lifespan=lifespan,
 )
@@ -40,13 +38,10 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Case-Access-Token"],
 )
 
-Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(farmers.router, prefix=settings.api_prefix)
 app.include_router(calls.router, prefix=settings.api_prefix)
 app.include_router(cases.router, prefix=settings.api_prefix)
-app.include_router(dashboard.router, prefix=settings.api_prefix)
 app.include_router(knowledge.router, prefix=settings.api_prefix)
 app.include_router(telephony.router, prefix=settings.api_prefix)
 app.include_router(marketplace.router, prefix=settings.api_prefix)

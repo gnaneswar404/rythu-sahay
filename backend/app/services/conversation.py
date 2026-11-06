@@ -62,11 +62,11 @@ def respond_to_message(db: Session, session_id: str, message: str, farmer_id: in
     if any(term in lowered for term in _outside_scope_terms):
         response = "క్షమించండి, ఈ పైలట్ ప్రస్తుతం నల్గొండ జిల్లా పత్తి రైతులకే అందుబాటులో ఉంది."
         _save_message(db, state, response, "ASSISTANT")
-        return {"response": response, "next_question_key": "scope", "needs_expert_review": False}
+        return {"response": response, "next_question_key": "scope"}
     if state.case_id:
-        response = "మీ కేసు ఇప్పటికే నమోదైంది. మీకు మరింత సమాచారం ఉంటే నిపుణుడికి చేరుస్తాము."
+        response = "మీ కేసు ఇప్పటికే నమోదైంది. అదనపు సలహా కోసం స్థానిక వ్యవసాయ అధికారిని సంప్రదించండి."
         _save_message(db, state, response, "ASSISTANT")
-        return {"response": response, "case_id": state.case_id, "next_question_key": None, "needs_expert_review": False}
+        return {"response": response, "case_id": state.case_id, "next_question_key": None}
 
     state.answers.append(text)
     prompts = [
@@ -79,7 +79,7 @@ def respond_to_message(db: Session, session_id: str, message: str, farmer_id: in
         response = prompts[state.stage]
         state.stage += 1
         _save_message(db, state, response, "ASSISTANT")
-        return {"response": response, "next_question_key": f"question_{state.stage}", "needs_expert_review": False}
+        return {"response": response, "next_question_key": f"question_{state.stage}"}
 
     farmer_db_id = _ensure_farmer(db, state)
     description = state.answers[0]
@@ -94,26 +94,25 @@ def respond_to_message(db: Session, session_id: str, message: str, farmer_id: in
             village=village,
             mandal=mandal,
             district="Nalgonda",
-            problem_category="నిపుణుడి సమీక్ష అవసరం",
+            problem_category="పంట సమస్య",
             description=description,
             symptoms=symptoms,
             severity=Severity.HIGH if severe else Severity.MEDIUM,
-            ai_summary="తెలుగు వాయిస్/టెక్స్ట్ డెమోలో సేకరించిన సమాచారం. నిర్ధారణకు నిపుణుడి సమీక్ష అవసరం.",
+            ai_summary="తెలుగు వాయిస్/టెక్స్ట్ డెమోలో సేకరించిన సమాచారం. కారణం నిర్ధారించబడలేదు.",
         ),
     )
     if severe:
         case.status = CaseStatus.ESCALATED
-        db.add(CaseAction(case=case, action_type="AUTO_ESCALATED", description="Potentially severe symptoms reported; expert review requested.", source="Safety triage"))
+        db.add(CaseAction(case=case, action_type="AUTO_ESCALATED", description="Potentially severe symptoms reported; farmer advised to seek local agricultural guidance.", source="Safety triage"))
         db.commit()
     state.case_id = case.id
-    response = f"ధన్యవాదాలు. మీ అభ్యర్థన {case.id}గా నమోదు చేశాము. నిపుణుడు పరిశీలించి తదుపరి సమాచారం ఇస్తారు. నిపుణుడి ధృవీకరణ లేకుండా మందులు వాడవద్దు."
+    response = f"ధన్యవాదాలు. మీ అభ్యర్థన {case.id}గా నమోదు చేశాము. తదుపరి సలహా కోసం స్థానిక వ్యవసాయ అధికారిని సంప్రదించండి. ధృవీకరించిన మార్గదర్శకం లేకుండా మందులు వాడవద్దు."
     _save_message(db, state, response, "ASSISTANT", case.id)
     return {
         "response": response,
         "case_id": case.id,
         "case_access_token": case.farmer_access_token,
         "next_question_key": None,
-        "needs_expert_review": True,
     }
 
 

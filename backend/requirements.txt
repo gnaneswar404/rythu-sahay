@@ -1,0 +1,17 @@
+fastapi==0.115.6
+# Plain Uvicorn keeps local/server behavior portable; [standard] pulls optional
+# PyYAML binaries that are not yet available for every Python runtime.
+uvicorn==0.32.1
+sqlalchemy==2.0.36
+pydantic-settings==2.7.0
+passlib[bcrypt]==1.7.4
+# Passlib 1.7.x is compatible with the bcrypt 4.x API; bcrypt 5 changes it.
+bcrypt==4.0.1
+python-multipart==0.0.18
+PyJWT==2.10.1
+email-validator==2.2.0
+google-auth==2.37.0
+requests==2.32.3
+psycopg[binary]==3.2.3
+pytest==8.3.4
+httpx==0.28.1

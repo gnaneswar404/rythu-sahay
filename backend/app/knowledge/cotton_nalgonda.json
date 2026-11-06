@@ -1,0 +1,34 @@
+[
+  {
+    "id": "demo-yellowing-001",
+    "problem_name": "ఆకులు పసుపు రంగులోకి మారడం",
+    "english_reference_name": "Leaf yellowing (requires expert assessment)",
+    "telugu_description": "పత్తి ఆకులు పసుపు రంగులోకి మారడానికి పోషక లోపం, నీటి ఒత్తిడి, పురుగు లేదా వ్యాధి వంటి భిన్న కారణాలు ఉండవచ్చు.",
+    "observable_symptoms": ["ఆకుల పసుపుదనం", "క్రమంగా వ్యాప్తి", "ఆకు ముడతలు లేదా మచ్చలు ఉన్నాయా చూడండి"],
+    "questions": ["సమస్య ఎన్ని రోజులుగా ఉంది?", "పసుపుదనం దిగువ ఆకుల నుంచి మొదలైందా?", "మచ్చలు లేదా పురుగులు కనిపిస్తున్నాయా?"],
+    "recommended_actions": ["పొలంలో నీరు నిల్వ ఉండకుండా, నేల తేమను పరిశీలించండి.", "ఫోటోలు మరియు లక్షణాలను వ్యవసాయ నిపుణుడితో పరిశీలించండి."],
+    "warning_signs": ["త్వరగా వ్యాపించడం", "మొక్కలు వాడిపోవడం", "పురుగులు అధికంగా కనిపించడం"],
+    "escalation_conditions": ["కారణం స్పష్టంగా లేకపోవడం", "అధిక ప్రాంతం ప్రభావితం కావడం", "తీవ్ర వాడిపోవడం"],
+    "source_organization": "RYTHU SAHAYA demonstration record",
+    "source_reference": "Demo-only; expert review required before treatment",
+    "last_reviewed": "2026-11-05",
+    "expert_approved": false,
+    "is_demo": true
+  },
+  {
+    "id": "demo-sucking-pest-002",
+    "problem_name": "రసం పీల్చే పురుగుల అనుమానం",
+    "english_reference_name": "Suspected sucking pests",
+    "telugu_description": "ఆకు ముడతలు, అంటుకునే పదార్థం లేదా చిన్న పురుగులు కనిపిస్తే గుర్తింపుకు నిపుణుడి పరిశీలన అవసరం.",
+    "observable_symptoms": ["ఆకు ముడతలు", "చిన్న పురుగులు", "అంటుకునే ఉపరితలం"],
+    "questions": ["ఆకుల కింద చిన్న పురుగులు కనిపిస్తున్నాయా?", "ఆకు ముడతలు లేదా అంటుకునే పదార్థం ఉందా?"],
+    "recommended_actions": ["స్పష్టమైన ఫోటో తీసి వ్యవసాయ నిపుణుడికి పంపండి.", "నిపుణుడి ధృవీకరణ లేకుండా ఏ రసాయనాన్ని ఉపయోగించవద్దు."],
+    "warning_signs": ["వేగంగా వ్యాప్తి", "కొత్త ఆకులు బాగా ముడతలు పడటం"],
+    "escalation_conditions": ["పురుగు గుర్తింపు అస్పష్టంగా ఉండటం", "తీవ్ర వ్యాప్తి"],
+    "source_organization": "RYTHU SAHAYA demonstration record",
+    "source_reference": "Demo-only; expert review required before treatment",
+    "last_reviewed": "2026-11-05",
+    "expert_approved": false,
+    "is_demo": true
+  }
+]
